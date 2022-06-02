@@ -1,6 +1,6 @@
 #---------------------install/load packages----------------------
 # packages necessary to perform simulation study
-# test
+
 if (!require("devtools")) install.packages("devtools")
 library(devtools) 
 install_github("LeonardV/restriktor")
