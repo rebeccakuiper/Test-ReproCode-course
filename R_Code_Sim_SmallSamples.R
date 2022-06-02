@@ -72,7 +72,7 @@ f2 <- c(0.02, 0.15, 0.35) # effect sizes f2
 r2 <- f2 / (1+f2) # transfrom f2 to R2 # R2 = .0196, .13, .26
 r2 <- c(r2, .933) # Special for this simulation, since HT89 use this r2 (then beta = ratio)
 rho <- c(0, 0.25, 0.5) # correlation between X's/predictors -- all set equal to rho
-# In this file, onlt r2 = .933 and rho = 0 will be used
+# In this file, only r2 = .933 and rho = 0 will be used
 N <- c(10, 20, 50, 80, 160, 250) # sample size  # c(10, 20)
 
 
@@ -85,8 +85,6 @@ for(n in N){
       tellerR2 <- length(r2) # r2 = 0.933
       tellerRho <- 1 # rho = 0
 #----------------------------GORIC SIMULATIES -----------------------------
-
-#RUN SIMULATIONS AFTER EVERY ADJUSTMENT
 
 # Make variables for output from simulation
 goric <- array(NA, c(nsim, (nrhypos+1)))
