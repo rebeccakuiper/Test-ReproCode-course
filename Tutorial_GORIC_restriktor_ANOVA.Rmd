@@ -1,0 +1,619 @@
+---
+title: 'Evaluate a set of hypotheses with GORIC or GORICA: ANOVA Example'
+author: "Rebecca M. Kuiper"
+date: "17-03-2022"
+fontsize: 14pt
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
+knitr::opts_chunk$set(comment = NA, warning=FALSE)
+```
+
+# Example 1: Lucas Data
+
+## Data preparation
+
+First, load the required libraries (after they have been installed). These libraries contain functions, such as `goric`, that will be used in the R code below.
+Each time you reopen R, you will have to load the required libraries.
+
+```{r, message = FALSE, warning = FALSE}
+## First, install the packages, if you have not done this already:
+if (!require("psych")) install.packages("psych")
+if (!require("restriktor")) install.packages("restriktor")
+
+## Then, load the packages:
+library(psych) # for the function describeBy
+library(restriktor) # for the goric function
+
+# If you want to use restriktor from github:
+#if (!require("devtools")) install.packages("devtools")
+#library(devtools) 
+#install_github("LeonardV/restriktor")
+#library(restriktor) # for goric function
+```
+
+
+Second, it is necessary to load the data.
+
+Notably, it is only possible to load the data if you are using the correct working directory (with both your R script and data file). The command `getwd()` shows you your current working directory. You can change the working directory to the one you prefer using the function `setwd()` by specifying the correct location between parentheses. Alternatively, in Rstudio, you can use the "Session" tab (on top) or you can use the "Files"-pane (on top of probably the right lower box of your Rstudio-screen, this pane is located next to the panes for "Plots", "Packages", "Help" and "Viewer").
+
+If you open the data file `Data_Lucas.txt` in a text editor, you can see that the variable labels have been inserted (using quotes; i.e., "...") in the first line of the file, which is called a header. Therefore, you have to specify 'header = TRUE' when loading the data:
+
+```{r}
+# Load the data
+Lucas <- read.table("Data_Lucas.txt", header = TRUE)
+```
+
+Since a .txt file was loaded, R does not know the measurement levels of the variables and assumes all of them to be continuous, meaning that they are of interval or ratio type. Hence, especially when there are more than two groups, one has to tell R that the variable `group` is a factor by using the `factor()` function on the `group` variable (i.e., a grouping / categorical / nominal variable): 
+
+```{r}
+# Make the variable group a factor
+Lucas$group <- factor(Lucas$group) 
+```
+
+To inspect the first 6 rows of the dataset, use the `head()` function:
+
+```{r}
+head(Lucas) # Look at first (6) rows of the data
+```
+
+To see a more detailed overview of the data via descriptive statistics split by `group` variable, use the `describeBy()` function with `Lucas$group` set to be a grouping variable, as follows:
+
+```{r}
+descrstat <- describeBy(Lucas$Influence, Lucas$group, mat = TRUE)
+descrstat
+```
+
+
+## Preparation for GORIC(A)
+
+
+#### ANOVA model: R-object
+
+First, an R-object with unconstrained estimates is needed, that is, in this example, the five group means and one residual variance. The linear regression model using `lm()` function is specified as follows:
+
+```{r}
+lm_fit_Lucas <- lm(Influence ~ group - 1, data = Lucas)
+```
+
+Note that:
+
+  1. `y ~ group - 1` instructs the function `lm` (linear model) to regress the variable y on the variable group.
+  
+  2. The `- 1` instructs the function `lm` to drop the intercept and, therefore, estimate the means of each group, resulting, here, in five group means. 
+On the other hand, if the intercept is not dropped, `y ~ group' would estimate an intercept, representing the mean of the reference group, and the mean differences between the other (here, four) groups and the reference group.
+  
+  3. The results are collected in, what is called, an R-object, named `lm_fit_Lucas`.
+
+
+
+It can be helpful to check the names used in this model, because these are needed when specifying the hypotheses:
+
+```{r}
+names(coef(lm_fit_Lucas))
+```
+  
+  
+#### ANOVA model: coef() and vcov()
+Note that goric() can use lm or glm objects (even most lavaan objects) as input.
+Since the GORICA can be applied to a broad range of models, the GORICA has another input option as well:
+One can enter the (structural) parameter estimates and their covariance matrix. 
+For most R-objects, these can be obtained using coef() and vcov().
+
+E.g., 
+```{r}
+est <- coef(lm_fit_Lucas)
+VCOV <- vcov(lm_fit_Lucas)
+```
+
+This will be illustrated in an GORICA example below.
+
+
+ 
+#### Set of hypotheses
+To evaluate the hypotheses of interest, it is necessary to specify the restrictions in these hypotheses correctly:
+
+ * Within the `restriktor()` and `goric()` functions, it is possible to use the following operators: `>`, `<`, `=`, `<=`, `>=`, `==` (where the last three denote the same constraint as the first three). 
+
+ * The `goric()` and the `restriktor()` functions can deal with:
+      + pairwise restrictions separated by a semicolon `;` (e.g., *"beta1 > beta2; beta2 = beta3"*).
+      + combined restrictions consisting of more than one operator (e.g., *"beta1 > beta2 = beta3"*).
+   
+   Note that one should use the labels of the parameter estimates (in the example above: group1-group5).
+      
+ * One can also define hypothesis in terms of linear functions of parameters (For more details, see 'Extra possibility specification hypotheses' near the end of the goric() tutorial called 'Tutorial_GORIC_restriktor_General').
+ 
+
+Let us specify the following hypotheses:
+```{r}
+H0 <- 'group1 = group2 = group3 = group4 = group5' 
+H1 <- 'group5 = group3 > group1 > group2; group3 > group4 > group2' 
+# Note: H1 is not full row-rank (see below and the goric() tutorial for more details).
+H2 <- 'group3 > group1 > group4 = group5 > group2'
+```
+
+To prevent from selecting a weak hypothesis, that is, a hypothesis not supported by the data, one should include a failsafe/safeguard hypothesis.
+This can be:
+
+  *   the unconstrained hypothesis (which includes all possible hypotheses, thus including the one(s) of interest);
+
+  *   the complement (which includes all other possible hypotheses, thus excluding the one(s) of interest),
+  
+  where the first option is the default. Notably, currently, the complement can only be used for one hypothesis of interest. Therefore, the examples w.r.t the use of the complement only evaluate H1 (and not the whole set).
+
+
+#### Seed values
+In the calculation of the GORIC, an iterative process is used to calculate the penalty / complexity part. Therefore, one needs to set a seed value using the `set.seed()`. 
+This has two advantages:
+
+1. Using the same seed value leads to the same penalty value every time this code is run.
+
+2. Using different seed values, allows for sensitivity check on the penalty value. If it is sensitive, then increase number of iterations used in calculation of the penalty (see below).
+
+
+## GORIC examples
+
+The GORIC can be used for normal linear models, like ANOVA and regression models.
+The `goric()` function calculates the *GORIC* value by default (type = "goric"). To calculate the *GORICA* values, the argument `type` has to be set to `gorica` (type = "gorica", see example below).
+
+
+### Example 1.1a: Using the unconstrained as failsafe
+```{r}
+set.seed(123) # Set seed value
+output <- goric(lm_fit_Lucas, H0, H1, H2)
+summary(output)
+```
+
+It can be seen that the order-restricted hypothesis $H_1$ has 16.5 times more support than $H_u$ (the unconstrained hypothesis). Hence, $H_1$ is not a weak hypotheses and can thus be compared to the other (weak and non-weak) competing hypotheses: $H_1$ is much more (4.52e+05 times more) supported than $H_0$ and 38.5 times more likely than $H_2$.
+
+
+### Example 1.1b: Using the complement as failsafe 
+```{r}
+set.seed(123) # Set seed value
+output_c <- goric(lm_fit_Lucas, H1, comparison = "complement")
+summary(output_c)
+```
+
+The order-restricted hypothesis $H_1$ has 13.4 times more support than its complement.
+
+
+
+## GORICA examples
+
+The *GORICA* can be used for a broad range of models. Besides normal linear models (e.g., ANOVA and regression models) it can be applied also to logisctic regression and SEM models and much more.
+To calculate the *GORICA* values, one should use `type = "gorica"`.
+
+
+### Example 1.2a: Using the unconstrained as failsafe
+```{r}
+set.seed(123) # Set seed value
+output_gorica <- goric(lm_fit_Lucas, H0, H1, H2, type = "gorica")
+summary(output_gorica)
+```
+
+In Example 1, the same analysis is done with the GORIC, you can see that the (relative) weights are (about) the same for the GORIC and GORICA.
+
+From this output, it can be seen that the order-restricted hypothesis $H_1$ has 16.5 times more support than $H_u$ (the unconstrained hypothesis). Hence, $H_1$ is not a weak hypotheses and can thus be compared to the other (weak and non-weak) competing hypotheses: $H_1$ is much more (1.13e+06 times more) supported than $H_0$ and 37.2 times more likely than $H_2$.
+
+#### Alternative input
+```{r}
+set.seed(123) # Set seed value
+est <- coef(lm_fit_Lucas)
+VCOV <- vcov(lm_fit_Lucas)
+output_gorica_alt <- goric(est, VCOV = VCOV, H0, H1, H2, type = "gorica")
+summary(output_gorica_alt)
+```
+
+
+### Example 1.2b: Using the complement as failsafe
+```{r}
+H1 <- 'group5 = group3 > group1 > group2; group3 > group4 > group2' 
+# Note: H1 is not full row-rank; 
+# for more details, see below and/or the goric tutorial.
+
+set.seed(123) # Set seed value
+output_gorica_c <- goric(lm_fit_Lucas, H1, comparison = "complement", 
+                         type = "gorica")
+summary(output_gorica_c)
+```
+The order-restricted hypothesis $H_1$ has 13.4 times more support than its complement.
+Notably, the weights are also now the same as for the GORIC (Example 2).
+
+
+
+
+# Example 2: Berzonsky et al.
+Next, the R code to apply the GORIC(A) to the data of Berzonsky et al. is shown. The instruction on loading and preparing the data are similar to the ones from Lucas example (Example 1). Hence, for more comments and details, see that example. 
+
+## Data preparation
+```{r}
+# Read Data. 
+BerzEtAl <- read.table("Data_BerzEtAl.txt", header = TRUE)
+BerzEtAl$group <- factor(BerzEtAl$group) 
+# this command tells R that group is a factor and not a continuous variable
+
+# Inspect data
+head(BerzEtAl)
+
+# Compute descriptive statistics for each group
+descrip <- describeBy(BerzEtAl$Influence, BerzEtAl$group, mat = TRUE)
+descrip
+```
+
+
+## Preparation for GORIC(A)
+```{r}
+# Using the R package lm
+lm_fit_BerzEtAl <-  lm(Influence ~ group-1, data=BerzEtAl)
+
+# Check names used in model
+names(coef(lm_fit_BerzEtAl))
+# Specify restrictions using those names
+```
+
+  
+ 
+#### Set of hypotheses
+```{r}
+H0 <- 'group1 = group2 = group3 = group4 = group5 = group6 = group7 = group8' 
+
+H1 <- 'group1 > group2; group1 > group3; group1 > group4; 
+      group5 > group6; group5 > group7; group5 > group8; 
+      group1 > group5; group2 > group6; group3 > group7; group4 > group8; 
+      group1 - group5 > group2 - group6; 
+      group1 - group5 > group3 - group7; 
+      group1 - group5 > group4 - group8;'
+
+H2 <- 'group1 > group2; group1 > group3; group1 > group4; 
+      group5 > group6; group5 > group7; group5 > group8;  
+      group1 > group5; group2 > group6; group3 > group7; group4 > group8;
+      group1 - group5 > 2*(group2 - group6); 
+      group1 - group5 > 2*(group3 - group7); 
+      group1 - group5 > 2*(group4 - group8);'
+```
+
+
+
+## GORIC examples
+
+### Example 2.1a: Using the unconstrained as failsafe
+```{r}
+set.seed(123) # Set seed value
+output_B <- goric(lm_fit_BerzEtAl, H0, H1, H2) 
+summary(output_B)
+```
+The order-restricted hypothesis $H_1$ has  17.4 times more support than $H_u$ (unconstrained).
+Hence, $H_1$ is not a weak hypotheses and can thus be compared to the other (weak and non-weak) competing hypotheses: 
+$H_1$ is much more (8.55e+56 and 4.73e+10 times more) supported than $H_0$ and $H_2$ (respectively).
+
+
+### Example 2.1b: Using the complement as failsafe 
+```{r}
+set.seed(123) 
+output_B_c <- goric(lm_fit_BerzEtAl, H1, comparison = "complement") 
+summary(output_B_c)
+```
+The order-restricted hypothesis $H_1$ has 17.2 times more support than its complement.
+
+
+## GORICA examples
+
+### Example 2.2a: Using the unconstrained as failsafe
+```{r}
+set.seed(123) # Set seed value
+output_B_gorica <- goric(lm_fit_BerzEtAl, H0, H1, H2, type = "gorica") 
+summary(output_B_gorica)
+```
+The order-restricted hypothesis $H_1$ has  18.6 times more support than $H_u$ (unconstrained).
+Hence, $H_1$ is not a weak hypotheses and can thus be compared to the other (weak and non-weak) competing hypotheses: 
+$H_1$ is much more (3.68e+205 and 4.46e+12 times more) supported than $H_0$ and $H_2$ (respectively).
+
+
+
+### Example 2.2b: Using the unconstrained as failsafe
+```{r}
+set.seed(123) 
+output_B_gorica_c <- goric(lm_fit_BerzEtAl, H1, comparison = "complement", type = "gorica") 
+summary(output_B_gorica_c)
+```
+The order-restricted hypothesis $H_1$ has 18.5 times more support than its complement.
+
+
+# Example 3: Holubar
+
+## Data preparation
+
+First, read in the Holubar dataset, and tell R that the variable `gr` (group) is a factor instead of a continuous variable (although it is not necessary because it consists of only two groups).
+
+```{r}
+Holubar <- read.table("Data_Holubar.txt", header = TRUE) # load the data
+Holubar$gr <- factor(Holubar$gr) # tell R that gr is a factor
+```
+
+If you want a more detailed overview of the data, also by means of descriptive statistics splitted by `group`, use
+
+```{r}
+head(Holubar)
+
+descrstat <- describeBy(Holubar$at, Holubar$gr, mat = TRUE)
+descrstat
+```
+
+
+## Preparation for GORIC(A)
+
+### ANOVA model: R-object
+Then, fit an ANOVA-model by means of the `lm()` function (linear model) and directly check the names that are used in this model:
+```{r}
+lm_fit_Holubar <- lm(at ~ gr - 1, data = Holubar)
+names(coef(lm_fit_Holubar))
+```
+
+### Set of hypotheses
+The following hypothesis will be evaluated: 
+```{r}
+H1 <- 'gr2 > gr1 > gr3'
+```
+
+## Model selection using GORIC
+
+Calculate the GORIC values and weights:
+```{r}
+set.seed(123) # Set seed value
+output_Hol <- goric(lm_fit_Holubar, H1, comparison = "complement")
+summary(output_Hol)
+```
+
+
+# Example 4: Sesame
+```{r}
+# read in the sesame data from a text file
+Sesame <- read.table("sesamesimANOVA.txt", header=TRUE)
+
+# make viewcat a factor, that is, a categorical variable
+Sesame$viewcat <- factor(Sesame$viewcat)
+
+# Inspect data
+head(Sesame)
+
+# estimate the parameters of the statistical model at hand 
+fit_Sesame <- lm(postnumb ~ viewcat - 1, data = Sesame)
+
+# Check names used in model
+names(coef(fit_Sesame))
+# Specify restrictions using those names
+
+
+# Example hypotheses: 
+H1 <- 'viewcat1 = viewcat2 < viewcat3 < viewcat4'  
+H2 <- 'viewcat1 < viewcat2 < viewcat3 < viewcat4'   
+H3 <- 'viewcat1 = viewcat2 < viewcat3 = viewcat4'   
+```
+
+## Calculate GORIC values and weights
+Here, we assume that the interest lies in H1 to H3. Since these do not cover all possibilities, the unconstrained hypotheses is included in the set.
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H1, H2, H3)
+```
+From the output, it is concluded that H2 is not a weak hypothesis (nor is H1). Thus, its support can be compared to that of the other hypotheses:
+H2 is 0.704/0.134 times more supported than H1 and 0.704/0.057 times more than H3. Hence, H2 is the preferred hypothesis and has quite some evidence.
+
+### Calculate GORICA values and weights
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H1, H2, H3, type = "gorica")
+```
+
+
+## Calculate GORIC values and weights for H1 and its complement
+Here, we assume that the interest lies only in H1. In that case, it should be evaluated against its complement.
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H1, comparison = "complement")
+```
+From the output, it is concluded that the support for H1 is comparable to that of its complement, with a slight preference for the complement. Note that the complement has the highest (log) likelihood but also the highest complexity/penalty, when balancing fit and complexity this results in a slight preference for the complement of H1.
+
+
+### Calculate GORICA values and weights for H1 and its complement
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H1, type = "gorica", comparison = "complement")
+```
+
+
+## Calculate GORIC values and weights for H2 and its complement
+Here, we assume that the interest lies only in H2. In that case, it should be evaluated against its complement.
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H2, comparison = "complement")
+```
+From the output, it is concluded that H1 is about 19 times more likely than its complement, showing quite some support for H2.
+
+
+### Calculate GORICA values and weights for H2 and its complement
+```{r}
+set.seed(123) 
+goric(fit_Sesame, H2, type = "gorica", comparison = "complement")
+```
+
+
+
+# Notes on weights
+
+Here, the example of Lucas is used again, consequently, using the following hypotheses of interest:
+```{r}
+H0 <- 'group1 = group2 = group3 = group4 = group5' 
+H1 <- 'group5 = group3 > group1 > group2; group3 > group4 > group2' 
+# Note: H1 is not full row-rank; 
+# for more details, see below and/or the goric tutorial.
+H2 <- 'group3 > group1 > group4 = group5 > group2'
+```
+
+
+### Note 1: GORIC weights versus GORICA weights
+
+The GORICA weights (asymptotically) equal the GORIC weights. The differences are minor and often not notable with 2 decimals.
+Because of these minor differences, the relative weights (i.e., ratio of weights) can differ.
+Those differences in relative weights can even be large (as is in the Berzonsky et al Example), when dividing a very large number by a very small number with minor differences in these values.
+
+
+
+### Note 2: complement in case of two hypotheses of interest
+
+One cannot compare the support of hypotheses when comparing them to their complements. Instead,
+one should evaluate them simultaneously in one set to get desirable outcomes (like done above):
+
+```{r}
+# Calculate goric for H1 and its complement
+set.seed(123) # Set seed value
+output_c_H1 <- goric(lm_fit_Lucas, H1, comparison = "complement")
+summary(output_c_H1)
+# The order-restricted hypothesis H1 has  13.4 times more support than 
+#                                                       its complement.
+```
+```{r}
+# Calculate goric for H2 and its complement
+set.seed(123) # Set seed value
+output_c_H2 <- goric(lm_fit_Lucas, H2, comparison = "complement")
+summary(output_c_H2)
+#The order-restricted hypothesis H1 has  0.37 times more support than 
+#                                                      its complement.
+```
+```{r}
+# Calculate goric for H1 and H2 (and Hu):
+set.seed(123) # Set seed value
+output_H1H2 <- goric(lm_fit_Lucas, H1, H2) # Note: by default, 
+                                           # against the unconstrained
+summary(output_H1H2)
+# H1 has 38.5 times more support than H2.
+#
+# This is not equal to:
+output_c_H1$ratio.gw[1,2] / output_c_H2$ratio.gw[1,2] 
+# approx 13.4 / 0.37
+# 36.34
+```
+```{r}
+# Notably, you could derive the support from H1 vs H2 from their support versus 
+# that of Hu:
+set.seed(123) # Set seed value
+output_u_H1 <- goric(lm_fit_Lucas, H1)
+summary(output_u_H1)
+#
+set.seed(123) # Set seed value
+output_u_H2 <- goric(lm_fit_Lucas, H2)
+summary(output_u_H2)
+#
+output_u_H1$ratio.gw[1,2] / output_u_H2$ratio.gw[1,2] 
+# approx (0.943/0.057) / (0.3/0.7) = 16.481 / 0.428 =
+# 38.49661
+# which (approximately) equals:
+output_H1H2$ratio.gw[1,2]
+```
+
+
+### Note 3: weights when using complement not per se higher
+
+In the Lucas example:
+
+* The order-restricted hypothesis $H_1$ has  16.5 times more support than $H_u$ (unconstrained).
+* The order-restricted hypothesis $H_1$ has  13.4 times more support than its complement $H_m$.
+
+Now, the complement does not render higher weight than if $H_u$ was used.
+
+
+If $H_m$ is not in agreement with the data, the complement does not always render a higher weight. 
+This is actually a good thing: Against $H_u$, $H_m$ might obtain too much support then.
+
+
+#### Some more explanation
+
+This is because for this particular example the mean of group 3 and 5 are close (and they are compared in Hypothesis $H_1$). 
+Notably, it will hold for all of the following three hypothesis:
+```{r}
+H1_gr <- 'group5 > group3 > group1 > group2; group3 > group4 > group2' 
+# not full row-rank
+H1_sm <- 'group5 < group3 > group1 > group2; group3 > group4 > group2' 
+# not full row-rank
+H1 <- 'group5 = group3 > group1 > group2; group3 > group4 > group2' 
+# not full row-rank
+```
+
+Because the means of groups 3&5 are similar (and the other restrictions are in agreement with the data),
+the log likelihood values (LL's) of $H_1$, $H_u$ and Hc (i.e., the complement of $H_1$) will be close - since the restricted/bounded solution (which is in agreement with $H_1$) is near the (unconstrained) maximum likelihood estimate (mle).
+Since the penalty for the complement is (always) lower than for $H_u$, it will receive more support than $H_u$ - thus $H_1$ receives less.
+Notably, when $H_1$ is very specific (as in Berzonsky et al Example below), the penalty of $H_u$ and Hcomplement are almost the same.
+
+When the means of groups 3 and 5 differ more, then evaluating against the complement does render a higher weight (than if $H_u$ were used):
+Let us increase the mean of group 5 with 0.5 points (and change the name of the data & the analysis):
+```{r}
+Lucas2 <- Lucas
+Lucas2$Influence[Lucas$group == 5] <- Lucas$Influence[Lucas$group == 5] + 0.5
+#describeBy(Lucas$Influence, Lucas$group, mat = TRUE)
+#describeBy(Lucas2$Influence, Lucas$group, mat = TRUE)
+lm_fit_Lucas2 <-  lm(Influence ~ group-1, data = Lucas2)
+# Now, from the three hypotheses H1_gr, H1_sm, and H1, # the first (H_gr) is 
+# correct. Hence, that one is used to illustrate the case where # a correct 
+# hypothesis obtains more support when it is evaluated against its complement:
+```
+```{r}
+H1_gr <- 'group5 > group3 > group1 > group2; group3 > group4 > group2' 
+# not full row-rank
+set.seed(123) # Set seed value
+output_u_gr <- goric(lm_fit_Lucas2, H1_gr)
+summary(output_u_gr)
+# The order-restricted hypothesis 'H1' has 13 times more support than Hu 
+# (the unconstrained hypothesis). Notably, this is the maximum support H1 can 
+# receive versus Hu (because the log likelihoods (LLs) are the same).
+```
+```{r}
+set.seed(123) # Set seed value
+output_c_gr <- goric(lm_fit_Lucas2, H1_gr, comparison = "complement")
+summary(output_c_gr)
+#The order-restricted hypothesis 'H1' has 29 times more support than 
+#                                                     its complement.
+```
+Now, when the means of groups 3 and 5 differ more, then evaluating against the complement does render a higher weight (29) than if Hu were used (13).
+
+
+
+# Extra: Two methods to calculate the penalty
+There are two methods that can be used in calculating the penalty. The default method is often much faster (if the number of parameters is not too high) and needs less input specification. It can, however, not deal with hypotheses that are not of full row-rank (like $H_1$ above). In that case, `restriktor` uses automatically the other (bootstrap) method. In this bootstrap method, one can also more easily change the number of iterations on which the penalty is based (mix.bootstrap). The computation time of this bootstrap method can be reduced by using multiple cores. For a windows device, you then have to use 'parallel = "snow"' (see the goric tutorial for more options). To use this bootstrap method (on a windows machine), use:
+```{r}
+if (!require("parallel")) install.packages("parallel") 
+library(parallel)
+nrCPUcores <- detectCores(all.tests = FALSE, logical = TRUE)
+set.seed(123) # Set seed value
+output_b <- goric(lm_fit_Lucas, H0, H1, H2,
+                  mix.weights = "boot", parallel = "snow", ncpus = nrCPUcores, mix.bootstrap = 99999)
+summary(output_b)
+```
+This, of course, renders the same results as above (if there is a difference, it is in the second decimal of the penalty).
+
+
+### Note on not full row-rank
+
+If the restriction matrix is not of full row-rank, this means one of the following:
+
+a) There is at least one redundant restriction.
+
+   Then, either a.1) leave the redundant one out or a.2) use another (more time-consuming) way of obtaining the level probabilities for the penalty term (goric function does this by default): Bootstrapping, as discussed above.
+
+b) There is at least one range restriction (e.g., -2 < group1 < 2). 
+
+   Such a restriction can be evaluated but there is a sensitivity (of a scaling factor in the covariance matrix, like with a prior in a Bayes factor) which currently cannot be checked for.
+
+c) There is at least one conflicting restriction (e.g., 2 < group1 < -2). 
+
+   Such a restriction can evidently never hold and is thus impossible to evaluate. To prevent this type of error delete the one that is incorrect and apply the goric() again.
+   
+
+
+[//]: #The following line is needed to prevent R Markdown from including a lot of white space below the last content.
+<div class="tocify-extend-page" data-unique="tocify-extend-page" style="height: 0;"></div>
